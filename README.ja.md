@@ -16,7 +16,9 @@ AIエージェント（Claude Code、Codex、Gemini CLI）をObsidianに直接�
 
 このプラグインは、Zed の [Agent Client Protocol (ACP)](https://github.com/agentclientprotocol/agent-client-protocol) で構築されています。
 
-https://github.com/user-attachments/assets/1c538349-b3fb-44dd-a163-7331cbca7824
+https://github.com/user-attachments/assets/0a8a3d26-0c03-4a52-a803-87ac2b8a3a55
+
+詳細については、[wiki-mode](docs/usage/wiki-mode.md) を参照してください
 
 ## 機能
 
@@ -33,11 +35,6 @@ https://github.com/user-attachments/assets/1c538349-b3fb-44dd-a163-7331cbca7824
 - **チャットエクスポート**: 会話をMarkdownノートとして保存
 - **ターミナル統合**: エージェントがコマンドを実行し結果を返す
 - **MCPサポート**: エージェントに設定済みのMCPサーバーがそのまま利用可能 — プラグイン側の追加設定は不要
-
-## LLM-wiki mode
-https://github.com/user-attachments/assets/0a8a3d26-0c03-4a52-a803-87ac2b8a3a55
-
-詳細については、[wiki-mode](docs/usage/wiki-mode.md) を参照してください
 
 ## インストール
 

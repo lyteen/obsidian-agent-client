@@ -19,7 +19,10 @@ Built on [Agent Client Protocol (ACP)](https://github.com/agentclientprotocol/ag
 
 Based on Andrej Karpathy's LLM-wiki concept [LLM-wiki](https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f)
 
-https://github.com/user-attachments/assets/1c538349-b3fb-44dd-a163-7331cbca7824
+## LLM-wiki mode
+https://github.com/user-attachments/assets/0a8a3d26-0c03-4a52-a803-87ac2b8a3a55
+
+See [wiki-mode](docs/usage/wiki-mode.md) for details.
 
 ## Features
 
@@ -37,19 +40,7 @@ https://github.com/user-attachments/assets/1c538349-b3fb-44dd-a163-7331cbca7824
 - **Terminal Integration**: Let agents execute commands and return results
 - **MCP Support**: Agents use their configured MCP servers — no extra setup needed in the plugin
 
-## LLM-wiki mode
-https://github.com/user-attachments/assets/0a8a3d26-0c03-4a52-a803-87ac2b8a3a55
-
-See [wiki-mode](docs/usage/wiki-mode.md) for details.
-
 ## Installation
-
-### Via BRAT (Recommended)
-
-1. Install the [BRAT](https://github.com/TfTHacker/obsidian42-brat) plugin
-2. Go to **Settings → BRAT → Add Beta Plugin**
-3. Paste: `https://github.com/RAIT-09/obsidian-agent-client`
-4. Enable **Agent Client** from the plugin list
 
 ### Manual Installation
 

@@ -14,7 +14,10 @@
 
 基于 Andrej Karpathy 的 LLM-wiki 理念 [LLM-wiki](https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f)
 
-![video](https://github.com/user-attachments/assets/1c538349-b3fb-44dd-a163-7331cbca7824)
+## LLM-wiki 模式
+https://github.com/user-attachments/assets/0a8a3d26-0c03-4a52-a803-87ac2b8a3a55
+
+详见 [wiki-mode](docs/usage/wiki-mode.md)
 
 ## 功能
 
@@ -32,19 +35,7 @@
 - **终端集成**：让代理执行命令并返回结果
 - **MCP 支持**：代理使用其配置的 MCP 服务器 — 插件中无需额外设置
 
-## LLM-wiki 模式
-https://github.com/user-attachments/assets/0a8a3d26-0c03-4a52-a803-87ac2b8a3a55
-
-详见 [wiki-mode](docs/usage/wiki-mode.md)
-
 ## 安装
-
-### 通过 BRAT（推荐）
-
-1. 安装 [BRAT](https://github.com/TfTHacker/obsidian42-brat) 插件
-2. 转到 **设置 → BRAT → 添加 Beta 插件**
-3. 粘贴：`https://github.com/RAIT-09/obsidian-agent-client`
-4. 从插件列表中启用 **Agent Client**
 
 ### 手动安装
 
