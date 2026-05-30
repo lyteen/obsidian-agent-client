@@ -334,12 +334,16 @@ export function useAgentMessages(
 				);
 
 				if (result.success) {
-					setIsSending(false);
-					setLastUserMessage(null);
-
 					// Commit post-turn workspace snapshot — recompute from disk
 					// so that any agent-self-edits during the turn are folded
 					// in and not re-shipped on the next prompt.
+					//
+					// This MUST run before `setIsSending(false)`: both setState
+					// calls sit after the same await, so React batches them into
+					// one render. ChatPanel's save effect fires on the isSending
+					// true→false edge and persists the snapshot it sees — which
+					// is now the fresh post-turn one, not the stale pre-turn one
+					// (revisions doc R2).
 					if (workspaceInput) {
 						try {
 							const next =
@@ -368,6 +372,9 @@ export function useAgentMessages(
 							prepared.pendingAutoMentionSnapshot,
 						);
 					}
+
+					setIsSending(false);
+					setLastUserMessage(null);
 				} else {
 					setIsSending(false);
 					setErrorInfo(

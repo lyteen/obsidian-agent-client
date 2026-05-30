@@ -69,7 +69,11 @@ function formatLink(
 	}
 
 	if (link.candidates.length === 1) {
-		const uri = resolveUri(link.candidates[0].path, vaultBasePath, convertToWsl);
+		const uri = resolveUri(
+			link.candidates[0].path,
+			vaultBasePath,
+			convertToWsl,
+		);
 		attrs.push(`uri="${escapeAttr(uri)}"`);
 		attrs.push(`resolved="true"`);
 		return `    <link ${attrs.join(" ")} />`;
@@ -91,7 +95,9 @@ function resolveUri(
 	const joined = vaultBasePath
 		? `${vaultBasePath}/${relativePath}`
 		: relativePath;
-	const absolutePath = convertToWsl ? convertWindowsPathToWsl(joined) : joined;
+	const absolutePath = convertToWsl
+		? convertWindowsPathToWsl(joined)
+		: joined;
 	return buildFileUri(absolutePath);
 }
 

@@ -227,6 +227,7 @@ export function ChatPanel({
 		onMessagesRestore: agent.setMessagesFromLocal,
 		onIgnoreUpdates: agent.setIgnoreUpdates,
 		onClearMessages: agent.clearMessages,
+		onWorkspaceSnapshotRestore: agent.setWorkspaceSnapshot,
 	});
 
 	// ============================================================
@@ -697,7 +698,11 @@ export function ChatPanel({
 			session.sessionId &&
 			messages.length > 0
 		) {
-			sessionHistory.saveSessionMessages(session.sessionId, messages);
+			sessionHistory.saveSessionMessages(
+				session.sessionId,
+				messages,
+				session.workspaceSnapshot,
+			);
 			logger.log(
 				`[ChatPanel] Session messages saved: ${session.sessionId}`,
 			);
@@ -712,6 +717,7 @@ export function ChatPanel({
 	}, [
 		isSending,
 		session.sessionId,
+		session.workspaceSnapshot,
 		messages,
 		sessionHistory.saveSessionMessages,
 		settings.enableSystemNotifications,

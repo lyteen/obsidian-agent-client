@@ -211,9 +211,7 @@ export class AgentClientSettingTab extends PluginSettingTab {
 					.setPlaceholder("Agent-Client")
 					.setValue(this.plugin.settings.agentWorkspace.path)
 					.onChange(async (value) => {
-						const trimmed = value
-							.trim()
-							.replace(/^\/+|\/+$/g, "");
+						const trimmed = value.trim().replace(/^\/+|\/+$/g, "");
 						if (!trimmed) return;
 						if (
 							trimmed

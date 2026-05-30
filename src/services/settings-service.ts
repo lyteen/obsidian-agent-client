@@ -9,7 +9,7 @@
 import type { AgentClientPluginSettings } from "../plugin";
 import type AgentClientPlugin from "../plugin";
 import type { ChatMessage } from "../types/chat";
-import type { SavedSessionInfo } from "../types/session";
+import type { SavedSessionInfo, WorkspaceSnapshot } from "../types/session";
 import { SessionStorage } from "./session-storage";
 
 // ============================================================================
@@ -105,12 +105,16 @@ export interface ISettingsAccess {
 	 * @param sessionId - Session ID
 	 * @param agentId - Agent ID for validation
 	 * @param messages - Chat messages to save
+	 * @param workspaceSnapshot - Agent Workspace snapshot to persist alongside
+	 *   the messages (seed-then-delta state). Pass the session's current
+	 *   snapshot on every save so it is never dropped.
 	 * @returns Promise that resolves when messages are saved
 	 */
 	saveSessionMessages(
 		sessionId: string,
 		agentId: string,
 		messages: ChatMessage[],
+		workspaceSnapshot?: WorkspaceSnapshot | null,
 	): Promise<void>;
 
 	/**
@@ -123,6 +127,14 @@ export interface ISettingsAccess {
 	 * @returns Promise that resolves with messages or null if not found
 	 */
 	loadSessionMessages(sessionId: string): Promise<ChatMessage[] | null>;
+
+	/**
+	 * Load the persisted Agent Workspace snapshot for a session.
+	 * Returns null when absent or malformed (caller re-seeds).
+	 *
+	 * @param sessionId - Session ID
+	 */
+	loadSessionSnapshot(sessionId: string): Promise<WorkspaceSnapshot | null>;
 
 	/**
 	 * Delete message history file for a session.
@@ -257,11 +269,13 @@ export class SettingsService implements ISettingsAccess {
 		sessionId: string,
 		agentId: string,
 		messages: ChatMessage[],
+		workspaceSnapshot?: WorkspaceSnapshot | null,
 	): Promise<void> {
 		return this.sessionStorage.saveSessionMessages(
 			sessionId,
 			agentId,
 			messages,
+			workspaceSnapshot,
 		);
 	}
 
@@ -269,6 +283,12 @@ export class SettingsService implements ISettingsAccess {
 		sessionId: string,
 	): Promise<ChatMessage[] | null> {
 		return this.sessionStorage.loadSessionMessages(sessionId);
+	}
+
+	async loadSessionSnapshot(
+		sessionId: string,
+	): Promise<WorkspaceSnapshot | null> {
+		return this.sessionStorage.loadSessionSnapshot(sessionId);
 	}
 
 	async deleteSessionMessages(sessionId: string): Promise<void> {

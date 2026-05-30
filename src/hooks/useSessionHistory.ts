@@ -10,6 +10,7 @@ import type {
 	SessionModelState,
 	SessionConfigOption,
 	AgentCapabilities,
+	WorkspaceSnapshot,
 } from "../types/session";
 import type { ChatMessage } from "../types/chat";
 
@@ -99,6 +100,12 @@ export interface UseSessionHistoryOptions {
 	onIgnoreUpdates?: (ignore: boolean) => void;
 	/** Clear messages before restoring from local storage */
 	onClearMessages?: () => void;
+	/**
+	 * Restore the persisted Agent Workspace snapshot for a resumed/forked
+	 * session, so its first prompt diffs against history instead of re-seeding
+	 * (revisions doc R2). `null` re-seeds.
+	 */
+	onWorkspaceSnapshotRestore?: (snapshot: WorkspaceSnapshot | null) => void;
 }
 
 /**
@@ -197,6 +204,7 @@ export interface UseSessionHistoryReturn {
 	saveSessionMessages: (
 		sessionId: string,
 		messages: import("../types/chat").ChatMessage[],
+		workspaceSnapshot?: WorkspaceSnapshot | null,
 	) => void;
 
 	/**
@@ -278,6 +286,7 @@ export function useSessionHistory(
 		onMessagesRestore,
 		onIgnoreUpdates,
 		onClearMessages,
+		onWorkspaceSnapshotRestore,
 	} = options;
 
 	// Derive capability flags from session.agentCapabilities
@@ -571,6 +580,14 @@ export function useSessionHistory(
 				} else {
 					throw new Error("Session restoration is not supported");
 				}
+
+				// Restore the persisted workspace snapshot last, after every
+				// onSessionLoad has reset it — so the first prompt of the
+				// resumed session diffs against history instead of re-seeding
+				// (revisions doc R2). Runs for all branches; null re-seeds.
+				const restoredSnapshot =
+					await settingsAccess.loadSessionSnapshot(sessionId);
+				onWorkspaceSnapshotRestore?.(restoredSnapshot);
 			} catch (err) {
 				const errorMessage =
 					err instanceof Error ? err.message : String(err);
@@ -589,6 +606,7 @@ export function useSessionHistory(
 			onMessagesRestore,
 			onIgnoreUpdates,
 			onClearMessages,
+			onWorkspaceSnapshotRestore,
 		],
 	);
 
@@ -621,6 +639,13 @@ export function useSessionHistory(
 					onMessagesRestore(localMessages);
 				}
 
+				// Inherit the parent session's workspace snapshot (OQ-1): the
+				// fork shares the same vault workspace, so re-seeding would add
+				// no information. Loaded from the ORIGINAL sessionId.
+				const inheritedSnapshot =
+					await settingsAccess.loadSessionSnapshot(sessionId);
+				onWorkspaceSnapshotRestore?.(inheritedSnapshot);
+
 				// Save forked session to history
 				if (session.agentId) {
 					const originalSession = sessions.find(
@@ -649,12 +674,15 @@ export function useSessionHistory(
 						updatedAt: now,
 					});
 
-					// Save messages under new session ID for restore after restart
+					// Save messages under new session ID for restore after restart,
+					// carrying the inherited snapshot so the forked session file
+					// is version-2 from the start.
 					if (localMessages) {
 						void settingsAccess.saveSessionMessages(
 							result.sessionId,
 							session.agentId,
 							localMessages,
+							inheritedSnapshot,
 						);
 					}
 				}
@@ -675,6 +703,7 @@ export function useSessionHistory(
 			onSessionLoad,
 			settingsAccess,
 			onMessagesRestore,
+			onWorkspaceSnapshotRestore,
 			invalidateCache,
 			session.agentId,
 			sessions,
@@ -801,6 +830,7 @@ export function useSessionHistory(
 		(
 			sessionId: string,
 			messages: import("../types/chat").ChatMessage[],
+			workspaceSnapshot?: WorkspaceSnapshot | null,
 		) => {
 			if (!session.agentId || messages.length === 0) return;
 
@@ -809,6 +839,7 @@ export function useSessionHistory(
 				sessionId,
 				session.agentId,
 				messages,
+				workspaceSnapshot,
 			);
 		},
 		[session.agentId, settingsAccess],

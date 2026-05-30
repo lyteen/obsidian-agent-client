@@ -451,10 +451,13 @@ export class AcpClient {
 				`[AcpClient] Sending prompt with ${content.length} content blocks`,
 			);
 
-      // Debug-check: full prompt content dump (debug mode only) for verifying
-      // prelude injection, mention expansion, and embedded context wiring.
+			// Debug-check: full prompt content dump (debug mode only) for verifying
+			// prelude injection, mention expansion, and embedded context wiring.
 
-      this.logger.log("[AcpClient][debug-check] Prompt content:", content);
+			this.logger.log(
+				"[AcpClient][debug-check] Prompt content:",
+				content,
+			);
 
 			const promptResult = await connection.prompt({
 				sessionId: sessionId,

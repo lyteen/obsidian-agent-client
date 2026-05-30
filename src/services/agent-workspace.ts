@@ -87,6 +87,24 @@ interface ResourcesManifest {
 	truncated: number;
 }
 
+/** Per-file change set computed between the previous snapshot and now. */
+interface ResourcesDiff {
+	/** Files present now but not in the previous snapshot. */
+	added: ResourceEntry[];
+	/** Vault paths present in the previous snapshot but gone now. */
+	removed: string[];
+	/** Files in both whose size/mtime/extension digest changed. */
+	modified: ResourceEntry[];
+}
+
+/**
+ * Raw per-entry digest used for change detection. Deliberately un-hashed:
+ * short, collision-free, and human-readable when debugging a stray delta.
+ */
+function digestEntry(entry: ResourceEntry): string {
+	return `${entry.size}:${entry.mtimeMs}:${entry.extension}`;
+}
+
 // ============================================================================
 // Hashing
 // ============================================================================
@@ -245,15 +263,10 @@ export class AgentWorkspace implements IAgentWorkspace {
 			this.subscribeVaultEvents();
 			this.manifestDirty = true;
 			this.bootstrapped = true;
-			this.logger.log(
-				`[AgentWorkspace] Bootstrapped at /${root}/`,
-			);
+			this.logger.log(`[AgentWorkspace] Bootstrapped at /${root}/`);
 		} catch (error) {
 			this.bootstrapFailed = true;
-			this.logger.error(
-				"[AgentWorkspace] Bootstrap failed:",
-				error,
-			);
+			this.logger.error("[AgentWorkspace] Bootstrap failed:", error);
 		}
 	}
 
@@ -318,10 +331,7 @@ export class AgentWorkspace implements IAgentWorkspace {
 
 	private buildResourcesManifest(): ResourcesManifest {
 		const settings = this.settingsAccess.getSnapshot().agentWorkspace;
-		const resourcesPath = joinVaultPath(
-			settings.path,
-			RESOURCES_DIRNAME,
-		);
+		const resourcesPath = joinVaultPath(settings.path, RESOURCES_DIRNAME);
 		const folder = this.app.vault.getAbstractFileByPath(resourcesPath);
 
 		if (!(folder instanceof TFolder)) {
@@ -335,8 +345,7 @@ export class AgentWorkspace implements IAgentWorkspace {
 		collected.sort((a, b) => b.mtimeMs - a.mtimeMs);
 
 		const cap = settings.resourcesMaxEntries;
-		const truncated =
-			collected.length > cap ? collected.length - cap : 0;
+		const truncated = collected.length > cap ? collected.length - cap : 0;
 		const entries = collected.slice(0, cap);
 
 		return { entries, truncated };
@@ -409,6 +418,50 @@ export class AgentWorkspace implements IAgentWorkspace {
 		return "";
 	}
 
+	private buildResourceEntriesMap(
+		manifest: ResourcesManifest,
+	): Record<string, string> {
+		const map: Record<string, string> = {};
+		for (const entry of manifest.entries) {
+			map[entry.vaultPath] = digestEntry(entry);
+		}
+		return map;
+	}
+
+	/**
+	 * Diff the current manifest against a previous snapshot's per-entry map.
+	 * Operates over the capped/visible window (R1.3): a file surfacing past the
+	 * cap after a removal reads as `added`, consistent with what the agent was
+	 * previously told.
+	 */
+	private diffResources(
+		prevEntries: Record<string, string>,
+		manifest: ResourcesManifest,
+	): ResourcesDiff {
+		const added: ResourceEntry[] = [];
+		const modified: ResourceEntry[] = [];
+		const currentPaths = new Set<string>();
+
+		for (const entry of manifest.entries) {
+			currentPaths.add(entry.vaultPath);
+			const prevDigest = prevEntries[entry.vaultPath];
+			if (prevDigest === undefined) {
+				added.push(entry);
+			} else if (prevDigest !== digestEntry(entry)) {
+				modified.push(entry);
+			}
+		}
+
+		const removed: string[] = [];
+		for (const path of Object.keys(prevEntries)) {
+			if (!currentPaths.has(path)) {
+				removed.push(path);
+			}
+		}
+
+		return { added, removed, modified };
+	}
+
 	private computeSnapshotFromState(
 		indexContent: string,
 		manifest: ResourcesManifest,
@@ -417,6 +470,7 @@ export class AgentWorkspace implements IAgentWorkspace {
 		return {
 			indexHash: this.hashContent(indexContent),
 			resourcesManifestHash: this.hashManifest(manifest),
+			resourceEntries: this.buildResourceEntriesMap(manifest),
 			outputDateString: todayDateString(),
 			hasSeed,
 		};
@@ -444,6 +498,7 @@ export class AgentWorkspace implements IAgentWorkspace {
 			const fallback: WorkspaceSnapshot = {
 				indexHash: "",
 				resourcesManifestHash: "",
+				resourceEntries: {},
 				outputDateString: todayDateString(),
 				hasSeed: snapshot?.hasSeed ?? false,
 			};
@@ -521,9 +576,7 @@ export class AgentWorkspace implements IAgentWorkspace {
 		indexContent: string,
 		manifest: ResourcesManifest,
 		today: string,
-		settings: ReturnType<
-			ISettingsAccess["getSnapshot"]
-		>["agentWorkspace"],
+		settings: ReturnType<ISettingsAccess["getSnapshot"]>["agentWorkspace"],
 		options: BuildPreludeOptions,
 	): string {
 		const indexBlock = this.formatIndexBlock(
@@ -531,11 +584,10 @@ export class AgentWorkspace implements IAgentWorkspace {
 			settings.path,
 			options,
 		);
-		const resourcesBlock = this.formatResourcesBlock(
+		const resourcesBlock = this.formatResourcesSeedBlock(
 			manifest,
 			settings,
 			options,
-			"seed",
 		);
 		const outputBlock = this.formatOutputDirectoryBlock(
 			today,
@@ -558,13 +610,10 @@ export class AgentWorkspace implements IAgentWorkspace {
 		indexContent: string,
 		manifest: ResourcesManifest,
 		today: string,
-		settings: ReturnType<
-			ISettingsAccess["getSnapshot"]
-		>["agentWorkspace"],
+		settings: ReturnType<ISettingsAccess["getSnapshot"]>["agentWorkspace"],
 		options: BuildPreludeOptions,
 	): string {
-		const indexChanged =
-			prev.indexHash !== next.indexHash;
+		const indexChanged = prev.indexHash !== next.indexHash;
 		const manifestChanged =
 			prev.resourcesManifestHash !== next.resourcesManifestHash;
 		const dateChanged = prev.outputDateString !== next.outputDateString;
@@ -573,41 +622,48 @@ export class AgentWorkspace implements IAgentWorkspace {
 			return "";
 		}
 
-		const parts: string[] = ["<obsidian_workspace_update>"];
+		const parts: string[] = [];
 
 		if (indexChanged) {
 			parts.push(
-				this.formatIndexBlock(
-					indexContent,
-					settings.path,
-					options,
-				),
+				this.formatIndexBlock(indexContent, settings.path, options),
 			);
 		}
 
 		if (manifestChanged) {
-			parts.push(
-				this.formatResourcesBlock(
-					manifest,
-					settings,
-					options,
-					"delta",
-				),
+			const diff = this.diffResources(
+				prev.resourceEntries ?? {},
+				manifest,
 			);
+			const block = this.formatResourcesDeltaBlock(
+				diff,
+				manifest,
+				settings,
+				options,
+			);
+			// The aggregate hash can shift without an entry-level diff (e.g.
+			// only the truncated count moved). Omit the block in that case.
+			if (block.length > 0) {
+				parts.push(block);
+			}
 		}
 
 		if (dateChanged) {
 			parts.push(
-				this.formatOutputDirectoryBlock(
-					today,
-					settings.path,
-					options,
-				),
+				this.formatOutputDirectoryBlock(today, settings.path, options),
 			);
 		}
 
-		parts.push("</obsidian_workspace_update>");
-		return parts.join("\n");
+		// All "changes" netted out to nothing emittable — send no update shell.
+		if (parts.length === 0) {
+			return "";
+		}
+
+		return [
+			"<obsidian_workspace_update>",
+			...parts,
+			"</obsidian_workspace_update>",
+		].join("\n");
 	}
 
 	// ========================================================================
@@ -619,10 +675,7 @@ export class AgentWorkspace implements IAgentWorkspace {
 		workspacePath: string,
 		options: BuildPreludeOptions,
 	): string {
-		const indexVaultPath = joinVaultPath(
-			workspacePath,
-			INDEX_FILENAME,
-		);
+		const indexVaultPath = joinVaultPath(workspacePath, INDEX_FILENAME);
 		const absolutePath = resolveAbsolute(
 			indexVaultPath,
 			options.vaultBasePath,
@@ -659,8 +712,7 @@ ${decoratedContent}
 		}
 
 		try {
-			const basenameIndex =
-				options.wikilinkResolver.buildBasenameIndex();
+			const basenameIndex = options.wikilinkResolver.buildBasenameIndex();
 			const links = options.wikilinkResolver.extractLinkedNoteMetadata(
 				content,
 				sourceVaultPath,
@@ -680,13 +732,11 @@ ${decoratedContent}
 		}
 	}
 
-	private formatResourcesBlock(
+	/** Shared opening tag carrying directory + caps + truncated count. */
+	private resourcesOpenTag(
 		manifest: ResourcesManifest,
-		settings: ReturnType<
-			ISettingsAccess["getSnapshot"]
-		>["agentWorkspace"],
+		settings: ReturnType<ISettingsAccess["getSnapshot"]>["agentWorkspace"],
 		options: BuildPreludeOptions,
-		mode: "seed" | "delta",
 	): string {
 		const resourcesVaultPath = joinVaultPath(
 			settings.path,
@@ -697,28 +747,72 @@ ${decoratedContent}
 			options.vaultBasePath,
 			options.convertToWsl,
 		);
-
 		const truncatedAttr =
-			manifest.truncated > 0
-				? ` truncated="${manifest.truncated}"`
-				: "";
+			manifest.truncated > 0 ? ` truncated="${manifest.truncated}"` : "";
+		return `  <resources directory="${escapeXml(resourcesAbs)}" max_entries="${settings.resourcesMaxEntries}" max_depth="${settings.resourcesMaxDepth}"${truncatedAttr}>`;
+	}
 
-		// In v1 we send the full manifest in delta mode (not added/removed/modified).
-		// Diffing keyed entries adds complexity without much agent-side benefit;
-		// the manifest itself is small (capped at resourcesMaxEntries).
+	/** Seed: flat full inventory of the visible window. */
+	private formatResourcesSeedBlock(
+		manifest: ResourcesManifest,
+		settings: ReturnType<ISettingsAccess["getSnapshot"]>["agentWorkspace"],
+		options: BuildPreludeOptions,
+	): string {
+		const open = this.resourcesOpenTag(manifest, settings, options);
 		const documents = manifest.entries
 			.map((entry) => this.formatDocumentLine(entry, options))
 			.join("\n");
-
-		const tag = mode === "seed" ? "resources" : "resources";
 		const inner = documents.length > 0 ? `\n${documents}\n  ` : "";
+		return `${open}${inner}</resources>`;
+	}
 
-		return `  <${tag} directory="${escapeXml(resourcesAbs)}" max_entries="${settings.resourcesMaxEntries}" max_depth="${settings.resourcesMaxDepth}"${truncatedAttr}>${inner}</${tag}>`;
+	/**
+	 * Delta: only the changed files, grouped into added/removed/modified.
+	 * Returns "" when the diff is empty (no emittable change).
+	 */
+	private formatResourcesDeltaBlock(
+		diff: ResourcesDiff,
+		manifest: ResourcesManifest,
+		settings: ReturnType<ISettingsAccess["getSnapshot"]>["agentWorkspace"],
+		options: BuildPreludeOptions,
+	): string {
+		const sections: string[] = [];
+
+		if (diff.added.length > 0) {
+			const lines = diff.added
+				.map((entry) =>
+					this.formatDocumentLine(entry, options, "      "),
+				)
+				.join("\n");
+			sections.push(`    <added>\n${lines}\n    </added>`);
+		}
+		if (diff.removed.length > 0) {
+			const lines = diff.removed
+				.map((path) => this.formatRemovedLine(path, options))
+				.join("\n");
+			sections.push(`    <removed>\n${lines}\n    </removed>`);
+		}
+		if (diff.modified.length > 0) {
+			const lines = diff.modified
+				.map((entry) =>
+					this.formatDocumentLine(entry, options, "      "),
+				)
+				.join("\n");
+			sections.push(`    <modified>\n${lines}\n    </modified>`);
+		}
+
+		if (sections.length === 0) {
+			return "";
+		}
+
+		const open = this.resourcesOpenTag(manifest, settings, options);
+		return `${open}\n${sections.join("\n")}\n  </resources>`;
 	}
 
 	private formatDocumentLine(
 		entry: ResourceEntry,
 		options: BuildPreludeOptions,
+		indent = "    ",
 	): string {
 		const abs = resolveAbsolute(
 			entry.vaultPath,
@@ -726,7 +820,19 @@ ${decoratedContent}
 			options.convertToWsl,
 		);
 		const lastModified = new Date(entry.mtimeMs).toISOString();
-		return `    <document path="${escapeXml(abs)}" size="${entry.size}" last_modified="${escapeXml(lastModified)}" extension="${escapeXml(entry.extension)}" />`;
+		return `${indent}<document path="${escapeXml(abs)}" size="${entry.size}" last_modified="${escapeXml(lastModified)}" extension="${escapeXml(entry.extension)}" />`;
+	}
+
+	private formatRemovedLine(
+		vaultPath: string,
+		options: BuildPreludeOptions,
+	): string {
+		const abs = resolveAbsolute(
+			vaultPath,
+			options.vaultBasePath,
+			options.convertToWsl,
+		);
+		return `      <document path="${escapeXml(abs)}" />`;
 	}
 
 	private formatOutputDirectoryBlock(

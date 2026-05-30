@@ -391,7 +391,9 @@ function resolveFileUri(
 	const joined = vaultBasePath
 		? `${vaultBasePath}/${relativePath}`
 		: relativePath;
-	const absolutePath = convertToWsl ? convertWindowsPathToWsl(joined) : joined;
+	const absolutePath = convertToWsl
+		? convertWindowsPathToWsl(joined)
+		: joined;
 	return buildFileUri(absolutePath);
 }
 
@@ -492,8 +494,7 @@ async function buildAgentWorkspaceBlocks(
 				vaultBasePath: input.vaultBasePath,
 				convertToWsl: input.convertToWsl ?? false,
 				wikilinkResolver: input.wikilinkResolver ?? null,
-				expandWikilinkContext:
-					input.expandWikilinkContext ?? false,
+				expandWikilinkContext: input.expandWikilinkContext ?? false,
 			},
 		);
 		return {

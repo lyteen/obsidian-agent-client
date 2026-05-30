@@ -33,6 +33,7 @@ import type {
 	SessionModeState,
 	SessionModelState,
 	SessionConfigOption,
+	WorkspaceSnapshot,
 } from "../types/session";
 import type { AgentDisplayInfo } from "../services/session-helpers";
 
@@ -71,6 +72,7 @@ export interface UseAgentReturn {
 		models?: SessionModelState,
 		configOptions?: SessionConfigOption[],
 	) => Promise<void>;
+	setWorkspaceSnapshot: (snapshot: WorkspaceSnapshot | null) => void;
 
 	// Config
 	setMode: (modeId: string) => Promise<void>;
@@ -197,6 +199,7 @@ export function useAgent(
 			cancelOperation: agentSession.cancelOperation,
 			getAvailableAgents: agentSession.getAvailableAgents,
 			updateSessionFromLoad: agentSession.updateSessionFromLoad,
+			setWorkspaceSnapshot: agentSession.setWorkspaceSnapshot,
 
 			// Config
 			setMode: agentSession.setMode,
@@ -232,6 +235,7 @@ export function useAgent(
 			agentSession.cancelOperation,
 			agentSession.getAvailableAgents,
 			agentSession.updateSessionFromLoad,
+			agentSession.setWorkspaceSnapshot,
 			agentSession.setMode,
 			agentSession.setModel,
 			agentSession.setConfigOption,

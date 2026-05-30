@@ -271,8 +271,11 @@ export interface ChatSession {
 
 	/**
 	 * Agent Workspace snapshot for seed-then-delta context shipping.
-	 * `null` until the first successful prompt; subsequent prompts use this
-	 * to compute deltas. Held in memory only — not persisted across reloads.
+	 * `null`/`undefined` until the first successful prompt; subsequent prompts
+	 * use this to compute deltas. Persisted in the per-session message file
+	 * (`sessions/{id}.json`, schema version 2) and restored on resume/fork so a
+	 * reloaded conversation diffs against history instead of re-seeding.
+	 * See docs/design/agent-workspace-revisions.md R2.
 	 */
 	workspaceSnapshot?: WorkspaceSnapshot | null;
 
@@ -293,7 +296,14 @@ export interface ChatSession {
  */
 export interface WorkspaceSnapshot {
 	indexHash: string;
+	/** cyrb53 of the canonical manifest — fast "anything changed?" gate. */
 	resourcesManifestHash: string;
+	/**
+	 * Per-file digest map (`vaultPath` → `` `${size}:${mtime}:${ext}` ``) used
+	 * to compute a precise added/removed/modified diff on the next prompt.
+	 * Raw (un-hashed) digest for collision-free comparison.
+	 */
+	resourceEntries: Record<string, string>;
 	outputDateString: string;
 	hasSeed: boolean;
 }

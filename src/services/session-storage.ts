@@ -11,7 +11,7 @@ import { Platform } from "obsidian";
 import type { AgentClientPluginSettings } from "../plugin";
 import type AgentClientPlugin from "../plugin";
 import type { ChatMessage, MessageContent } from "../types/chat";
-import type { SavedSessionInfo } from "../types/session";
+import type { SavedSessionInfo, WorkspaceSnapshot } from "../types/session";
 import { convertWindowsPathToWsl } from "../utils/platform";
 
 // ============================================================================
@@ -20,6 +20,11 @@ import { convertWindowsPathToWsl } from "../utils/platform";
 
 /**
  * Serialized format for session message files.
+ *
+ * version 1: messages only.
+ * version 2: adds optional `workspaceSnapshot` (Agent Workspace seed-then-delta
+ *            state, persisted so resumed sessions diff instead of re-seeding —
+ *            see docs/design/agent-workspace-revisions.md R2).
  */
 interface SessionMessagesFile {
 	version: number;
@@ -31,7 +36,25 @@ interface SessionMessagesFile {
 		content: MessageContent[];
 		timestamp: string;
 	}>;
+	workspaceSnapshot?: WorkspaceSnapshot | null;
 	savedAt: string;
+}
+
+/** Current on-disk schema version for session message files. */
+const SESSION_FILE_VERSION = 2;
+
+/** Structural guard for a persisted snapshot — corrupt data falls back to null. */
+function isValidWorkspaceSnapshot(value: unknown): value is WorkspaceSnapshot {
+	if (typeof value !== "object" || value === null) return false;
+	const s = value as Record<string, unknown>;
+	return (
+		typeof s.indexHash === "string" &&
+		typeof s.resourcesManifestHash === "string" &&
+		typeof s.outputDateString === "string" &&
+		typeof s.hasSeed === "boolean" &&
+		typeof s.resourceEntries === "object" &&
+		s.resourceEntries !== null
+	);
 }
 
 /**
@@ -182,6 +205,7 @@ export class SessionStorage {
 		sessionId: string,
 		agentId: string,
 		messages: ChatMessage[],
+		workspaceSnapshot?: WorkspaceSnapshot | null,
 	): Promise<void> {
 		await this.ensureSessionsDir();
 
@@ -190,11 +214,12 @@ export class SessionStorage {
 			timestamp: msg.timestamp.toISOString(),
 		}));
 
-		const data = {
-			version: 1,
+		const data: SessionMessagesFile = {
+			version: SESSION_FILE_VERSION,
 			sessionId,
 			agentId,
 			messages: serialized,
+			workspaceSnapshot: workspaceSnapshot ?? null,
 			savedAt: new Date().toISOString(),
 		};
 
@@ -233,7 +258,7 @@ export class SessionStorage {
 				return null;
 			}
 
-			if (data.version !== 1) {
+			if (data.version !== 1 && data.version !== 2) {
 				console.warn(
 					`[SessionStorage] Unknown session file version: ${data.version}`,
 				);
@@ -247,6 +272,37 @@ export class SessionStorage {
 		} catch (error) {
 			console.error(
 				`[SessionStorage] Failed to load session messages: ${error}`,
+			);
+			return null;
+		}
+	}
+
+	/**
+	 * Load the persisted Agent Workspace snapshot for a session.
+	 *
+	 * Returns null when the file is missing, is a pre-version-2 file (no
+	 * snapshot), or the stored snapshot is malformed — in every case the caller
+	 * treats null as "needs seed" and re-seeds, which is always safe.
+	 */
+	async loadSessionSnapshot(
+		sessionId: string,
+	): Promise<WorkspaceSnapshot | null> {
+		const filePath = this.getSessionFilePath(sessionId);
+		const adapter = this.plugin.app.vault.adapter;
+
+		if (!(await adapter.exists(filePath))) {
+			return null;
+		}
+
+		try {
+			const content = await adapter.read(filePath);
+			const data = JSON.parse(content) as SessionMessagesFile;
+			return isValidWorkspaceSnapshot(data.workspaceSnapshot)
+				? data.workspaceSnapshot
+				: null;
+		} catch (error) {
+			console.error(
+				`[SessionStorage] Failed to load session snapshot: ${error}`,
 			);
 			return null;
 		}
