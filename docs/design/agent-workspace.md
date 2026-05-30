@@ -204,7 +204,7 @@ they're concatenated with a newline separator.
     {{full content of Index.md, with [[links]] resolved by the
     wikilink extractor (file paths surfaced as <obsidian_metadata> the
     same way mentioned notes do)}}
-  </focus_context>
+  </index>
 
   <resources directory="/abs/vault/Agent-Client/Resources/" max_entries="200" max_depth="3">
     <document path="/abs/.../annual_report_2023.pdf" size="4718592" last_modified="2026-03-15T..." extension="pdf" />
@@ -238,7 +238,7 @@ re-send it):
   <!-- only present if Index.md hash changed since last snapshot -->
   <index path="...">
     {{full new content, with wikilinks resolved}}
-  </focus_context>
+  </index>
 
   <!-- only present if Resources/ manifest changed; only the diffs -->
   <resources directory="...">
@@ -268,12 +268,21 @@ resume):
 
 ```ts
 interface WorkspaceSnapshot {
-  focusContextHash: string;           // SHA-1 of Index.md content
-  resourcesManifestHash: string;      // SHA-1 of canonicalized manifest
+  indexHash: string;                  // cyrb53 of Index.md content
+  resourcesManifestHash: string;      // cyrb53 of canonicalized manifest (fast "anything changed?" gate)
+  resourceEntries: Record<string, string>; // vaultPath -> `${size}:${mtime}:${ext}` digest (per-file diff; see agent-workspace-revisions.md R1)
   outputDateString: string;           // YYYY-MM-DD
   hasSeed: boolean;                   // false until first successful prompt
 }
 ```
+
+Hashes are `cyrb53` (fast, non-cryptographic) — used **only** for local
+change detection between turns, never as a security boundary. A collision's
+sole consequence is a missed/spurious delta. See revisions doc R3.
+
+The snapshot is **persisted** in the per-session message file
+(`sessions/{id}.json`, schema version 2) so a reloaded conversation diffs
+against its historical snapshot instead of re-seeding. See revisions doc R2.
 
 - **Before sending a prompt:** if `!hasSeed`, emit `<obsidian_workspace>` (4.3).
   Else compute current hashes, build delta if any field differs, prepend.
@@ -293,10 +302,17 @@ snapshot and are never re-advertised.
 ```ts
 export interface IAgentWorkspace {
   ensureBootstrapped(): Promise<void>;
-  getSeedPrelude(): Promise<string>;
-  getDeltaPrelude(snapshot: WorkspaceSnapshot): Promise<{
-    prelude: string;            // empty when nothing changed
-    nextSnapshot: WorkspaceSnapshot;
+  isEnabled(): boolean;
+  // Unified seed/delta builder. Returns the workspace state block (null on
+  // empty delta or bootstrap failure), the seed-only instructions block, and
+  // the snapshot to commit after a successful turn.
+  buildPrelude(
+    snapshot: WorkspaceSnapshot | null,
+    options: BuildPreludeOptions,
+  ): Promise<{
+    state: { uri: string; xml: string } | null;
+    instructions: { uri: string; xml: string } | null;
+    pendingSnapshot: WorkspaceSnapshot;
   }>;
   postTurnSnapshot(): Promise<WorkspaceSnapshot>;
   destroy(): void;              // unsubscribe vault events
@@ -307,7 +323,7 @@ Internal responsibilities:
 - Path resolution (workspacePath + vault base path).
 - Bootstrap (4.2).
 - Vault event subscription; in-memory manifest with `dirty` flag.
-- Hash computation (SHA-1 of content / canonical JSON manifest).
+- Hash computation (`cyrb53` of content / canonical JSON manifest).
 - Delegation to `wikilink-resolver` for `[[links]]` inside `Index.md`.
 - XML formatting (delegated to a `wikilink-formatter`-style helper, possibly
   in a sibling `agent-workspace-formatter.ts`).
@@ -333,9 +349,12 @@ re-bootstrap.
 ### 5.4 Snapshot tracking per session
 
 Each `ChatSession` in `types/session.ts` gets an optional
-`workspaceSnapshot: WorkspaceSnapshot | null` field, persisted alongside
-existing session metadata in `session-storage.ts`. Default null on new
-sessions (which signals "needs seed"). Resume reuses the persisted value.
+`workspaceSnapshot: WorkspaceSnapshot | null` field, persisted in the
+per-session message file (`sessions/{id}.json`, schema version 2) via
+`session-storage.ts` — **not** in the `savedSessions` settings array, which is
+always held in memory. Default null on new sessions (which signals "needs
+seed"). Resume reuses the persisted value (revisions doc R2); version-1 files
+load as null → re-seed.
 
 ### 5.5 Integration with `message-sender.ts`
 
@@ -479,9 +498,12 @@ Future settings (out of scope for v1):
    reads more naturally. Tentative: leading text block for the seed,
    matching delta-block shape. Confirm during impl.
 
-2. **O2: Hashing strategy for the manifest.** SHA-1 of canonicalized JSON
-   (sorted keys, ISO timestamps) vs sum of `(path, mtime, size)` tuples?
-   Recommend canonical-JSON SHA-1 for strict equality and easy debugging.
+2. **O2: Hashing strategy for the manifest.** *Resolved:* `cyrb53` of a
+   canonicalized JSON manifest for the aggregate change-detection gate. No
+   crypto needed — the hash never crosses a trust boundary and a collision
+   only costs a missed/spurious delta. The per-file diff (revisions doc R1)
+   stores a raw `${size}:${mtime}:${ext}` digest per path, deliberately
+   un-hashed for collision-free clarity.
 
 3. **O3: Where does the snapshot live for *floating* views?** Currently
    sessions are scoped per chat-view. Floating chat instances each have
